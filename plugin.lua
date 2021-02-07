@@ -1,6 +1,8 @@
---referenced and stole a lot of iceSV code >.<
+--referenced and stole/modified a lot of iceSV code >.<
 SAMELINE_SPACING = 5
 DEFAULT_WIDGET_HEIGHT = 26
+DEFAULT_WIDGET_WIDTH = 200
+BUTTON_WIDGET_RATIOS = { 0.3, 0.7 }
 
 function draw()
    applyStyle()
@@ -46,9 +48,8 @@ function applyStyle()
      imgui.PushStyleColor(   imgui_col.SliderGrabActive,        { 0.45, 0.46, 0.47, 1.00 })
 end
 
-
 function svMenu()
-    imgui.SetNextWindowSize({400, 400})
+    imgui.SetNextWindowSize({330, 400})
     imgui.Begin("noticeSV", imgui_window_flags.NoResize)
     imgui.BeginTabBar("function_selection")
     info()
@@ -72,8 +73,8 @@ function info()
             helpMarker(text)
         end
         
-        helpItem("Bounce SV", "Make notes look like they are jumping or bouncing")
-        helpItem("Teleport SV", "Teleport notes to different parts of the screen")
+        helpItem("Bounce SV", "Makes a note look like it is jumping or bouncing")
+        helpItem("Teleport SV", "Teleports a note to a different part of the screen")
         helpItem("Float SV", "Suspend notes in the middle of the screen")
         
         section("links")
@@ -85,7 +86,7 @@ function info()
         
         listItem("noticeSV Wiki", "https://github.com/kloi34/noticeSV/wiki")
         listItem("GitHub Repository", "https://github.com/kloi34/noticeSV")
-        listItem("Heavily inspired by IceDynamix's iceSV", "https://github.com/IceDynamix/iceSV")
+        listItem("Heavily inspired by IceDynamix's iceSV plugin", "https://github.com/IceDynamix/iceSV")
         
         separator()
         spacing()
@@ -101,34 +102,48 @@ function bounce()
         local menuID = "bounce"
         local vars = {
             averageSV = 1.0,
-            svPerBounce = 16,
-            skipEndSV = false
+            lastSVs = {},
+            svPerBounce = 32,
+            skipEndSV = false,
         }
         retrieveStateVariables(menuID, vars)
         
-        _, vars.svPerBounce = imgui.InputInt("SVs per bounce", vars.svPerBounce, 4)
-        vars.svPerBounce = mathClamp(vars.svPerBounce, 4, 128)
+        imgui.PushItemWidth(DEFAULT_WIDGET_WIDTH)
+        _, vars.svPerBounce = imgui.InputInt("  SVs per bounce", vars.svPerBounce, 4)
+        vars.svPerBounce = mathEvenNum(vars.svPerBounce)
+        vars.svPerBounce = mathClamp(vars.svPerBounce, 16, 256)
         
-        spacing()
-        imgui.Separator()
-        spacing()
+        imgui.PopItemWidth()
         
-        if imgui.Button("Reset") then
-          vars.averageSV = 1
+        if imgui.Button("Reset", {DEFAULT_WIDGET_WIDTH * BUTTON_WIDGET_RATIOS[1], DEFAULT_WIDGET_HEIGHT}) then
+            vars.averageSV = 1
         end
         
         imgui.SameLine(0, SAMELINE_SPACING)
-        imgui.PushItemWidth(200)
-        _, vars.averageSV = imgui.DragFloat("Average SV", vars.averageSV, 0.01, -100, 100, "%.2fx")
+        imgui.PushItemWidth(DEFAULT_WIDGET_WIDTH * BUTTON_WIDGET_RATIOS[2] - SAMELINE_SPACING)
+        _, vars.averageSV = imgui.DragFloat("  Average SV", vars.averageSV, 0.01, -100, 100, "%.2fx")
         imgui.PopItemWidth()
-        _, vars.skipEndSV =  imgui.Checkbox("Skip end SV?", vars.skipEndSV)
+        _, vars.skipEndSV =  imgui.Checkbox(" Skip end SV?", vars.skipEndSV)
         
         
         spacing()
         imgui.Separator()
         spacing()
-        if imgui.Button("Insert SVs onto selected notes") then
-          
+        
+        if insertButton() then
+            local offsets = {}
+            for i, hitObject in pairs(state.SelectedHitObjects) do
+                offsets[i] = hitObject.StartTime
+            end
+            --if (#offsets == 0) then
+            --    imgui.Text("#offsets == 1")
+            --elseif (#offsets == 1) then
+            --    imgui.Text("#offsets == 1")
+            --else
+                offsets = uniqueByTime(offsets)
+                vars.lastSVs = calculateBounceSV(table.sort(offsets), averageSV, svPerBounce, skipEndSV)
+                placesvs(vars.lastSVs)
+            --end
         end
         
         saveStateVariables(menuID, vars)
@@ -150,6 +165,8 @@ function floating()
     end
 end
 
+--function reverse scroll direction
+
 function retrieveStateVariables(menuID, variables)
     for key, value in pairs(variables) do
         variables[key] = state.GetValue(menuID..key) or value
@@ -166,6 +183,78 @@ function mathClamp(x, min, max)
     if x < min then x = min end
     if x > max then x = max end
     return x
+end
+
+function mathEvenNum(number)
+  if (number % 2 == 0) then
+      return number
+  else
+      return (number - 1)
+  end
+end
+
+function insertButton()
+    imgui.Button("Insert SVs", { DEFAULT_WIDGET_WIDTH, DEFAULT_WIDGET_HEIGHT })
+end
+
+function calculateBounceSV(offsets, averageSV, svPerBounce, skipEndSV)
+    local SVs = {}
+    local lastOffsetEnd
+    
+    for i, offset in ipairs(offsets) do
+        if (i == #offsets) then 
+            lastOffsetEnd = offset
+        break end
+        
+        linearSVs = calculateLinearSVs(offset, offsets[i+1], averageSV, svPerBounce)
+        table.insert(linearSVs, utils.CreateScrollVelocity(offset, averageSV))
+    end
+    
+    if (skipEndSV == false) then
+        table.insert(SVs, utils.CreateScrollVelocity(lastOffsetEnd, averageSV))
+    end
+    
+    return SVs
+end
+
+function uniqueByTime(offsets)
+    local hash = {}
+    local uniqueTimes = {}
+    
+    for _, value in ipairs(offsets) do
+        if (not hash[value]) then
+            uniqueTimes[#uniqueTimes + 1] = value
+            hash[value] = true
+        end
+    end
+    return uniqueTimes
+end
+
+function calculateLinearSVs(startOffset, endOffset, averageSV, svPerBounce)
+    local offsetInterval = endOffset - startOffset
+    local maxSV = averageSV * 2
+    local svIncrement = (maxSV * 2) / svPerBounce
+    local steps = svPerBounce / 2
+    local svValues = {}
+    local SVs = {}
+    
+    for step = 1, steps, 1 do
+        svValues[step] = - maxSV * (steps - step + 1) / steps
+    end
+    
+    for step = steps, 1, -1 do
+        svValues[(2*steps+1)-step] = -svValues[step]
+    end
+    
+    for step = 0, svPerBounce - 1, 1 do
+        local offset = startOffset + step * (offsetInterval/ svPerBounce)
+        SVs[step+1] = utils.CreateScrollVelocity(offset, svValues[step+1])
+    end
+    return SVs
+end
+
+function placeSVs(svs)
+    actions.PlaceScrollVelocityBatch(svs)
 end
 
 -------------------------------------------------------------------------------------
