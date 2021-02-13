@@ -1,17 +1,18 @@
---referenced and stole/modified a lot of iceSV code >.<
+-- Thank you IceDynamix for writing the Quaver Plugin Guide
+
 SAMELINE_SPACING = 5
 DEFAULT_WIDGET_HEIGHT = 26
-DEFAULT_WIDGET_WIDTH = 200
+DEFAULT_WIDGET_WIDTH = 250
 BUTTON_WIDGET_RATIOS = { 0.3, 0.7 }
+MAX_TELEPORT_SV = 24000
 
 function draw()
-   applyStyle()
-   svMenu()
+    applyStyle()
+    svMenu()
 end
 
 function applyStyle()
     --Plugin Styles
-    
      local rounding = 0
      
      imgui.PushStyleVar( imgui_style_var.WindowPadding,      { 20, 10 } )
@@ -49,21 +50,16 @@ function applyStyle()
 end
 
 function svMenu()
-    imgui.SetNextWindowSize({330, 400})
+    imgui.SetNextWindowSize({450, 450})
     imgui.Begin("noticeSV", imgui_window_flags.NoResize)
     imgui.BeginTabBar("function_selection")
     info()
-    bounce()
-    teleport()
-    floating()
+    reverseScroll()
     imgui.EndTabBar()
-    -- the line below is needed, as IceDynamix notes, in order for clicking and scrolling done on the plugin window
-    -- to not also do unintential things in the quaver editor
     state.IsWindowHovered = imgui.IsWindowHovered()
     imgui.End()
 end
 
--- Information Tab that provides an overview with general information about the plugin
 function info()
     if imgui.BeginTabItem("Info") then
         section("help", true)
@@ -73,9 +69,10 @@ function info()
             helpMarker(text)
         end
         
-        helpItem("Bounce SV", "Makes a note look like it is jumping or bouncing")
-        helpItem("Teleport SV", "Teleports a note to a different part of the screen")
-        helpItem("Float SV", "Suspend notes in the middle of the screen")
+        helpItem("Reverse Scroll", "Flips the note scroll direction to the opposite direction")
+        --helpItem("Bounce SV", "Makes a note look like it is jumping or bouncing")
+        --helpItem("Teleport SV", "Teleports a note to a different part of the screen")
+        --helpItem("Float SV", "Suspend notes in the middle of the screen")
         
         section("links")
         
@@ -91,132 +88,81 @@ function info()
         separator()
         spacing()
         imgui.Text("noticeSV v1.0.0")
+        
         imgui.endTabItem()
     end
 end
 
-function bounce()
-    if imgui.BeginTabItem("Bounce") then
-        section("Settings", true)
-        
-        local menuID = "bounce"
-        local vars = {
-            averageSV = 1.0,
-            lastSVs = {},
-            svPerBounce = 32,
-            skipEndSV = false,
+function reverseScroll()
+    if imgui.BeginTabItem("Reverse") then
+        menuID = "reverse"
+        variables = {
+            reverseSVSpeed = -1,
+            teleportSV = MAX_TELEPORT_SV
         }
-        retrieveStateVariables(menuID, vars)
+        retrieveStateVariables(menuID, variables)
         
-        imgui.PushItemWidth(DEFAULT_WIDGET_WIDTH)
-        _, vars.svPerBounce = imgui.InputInt("  SVs per bounce", vars.svPerBounce, 4)
-        vars.svPerBounce = mathEvenNum(vars.svPerBounce)
-        vars.svPerBounce = mathClamp(vars.svPerBounce, 16, 256)
+        section("note", true)
+        imgui.Text("Reverse scroll does not work well with long notes")
         
-        imgui.PopItemWidth()
+        section("settings")
         
         if imgui.Button("Reset", {DEFAULT_WIDGET_WIDTH * BUTTON_WIDGET_RATIOS[1], DEFAULT_WIDGET_HEIGHT}) then
-            vars.averageSV = 1
+            variables.teleportSV = MAX_TELEPORT_SV
         end
-        
         imgui.SameLine(0, SAMELINE_SPACING)
         imgui.PushItemWidth(DEFAULT_WIDGET_WIDTH * BUTTON_WIDGET_RATIOS[2] - SAMELINE_SPACING)
-        _, vars.averageSV = imgui.DragFloat("  Average SV", vars.averageSV, 0.01, -100, 100, "%.2fx")
+        _, variables.teleportSV = imgui.DragInt("  Teleport SV", variables.teleportSV, 20, 0, 30000)
         imgui.PopItemWidth()
-        _, vars.skipEndSV =  imgui.Checkbox(" Skip end SV?", vars.skipEndSV)
         
+        --buttons with the same string name makes the second button not work for some reason,
+        --so i added a space before and after in the string for this second button to make it work
+        if imgui.Button(" Reset ", {DEFAULT_WIDGET_WIDTH * BUTTON_WIDGET_RATIOS[1], DEFAULT_WIDGET_HEIGHT}) then
+            variables.reverseSVSpeed = -1
+        end
+        imgui.SameLine(0, SAMELINE_SPACING)
+        imgui.PushItemWidth(DEFAULT_WIDGET_WIDTH * BUTTON_WIDGET_RATIOS[2] - SAMELINE_SPACING)
+        _, variables.reverseSVSpeed = imgui.DragFloat("  Reverse SV Speed", variables.reverseSVSpeed, 0.01, -10, 0, "%.2fx")
+        imgui.PopItemWidth()
+        helpMarker("The SV value that determines where on the screen the reverse-scroll notes will be hit")
         
+        separator()
         spacing()
-        imgui.Separator()
-        spacing()
         
-        if insertButton() then
+        if imgui.Button("Insert SVs onto selected notes", { DEFAULT_WIDGET_WIDTH, DEFAULT_WIDGET_HEIGHT }) then
+            local SVs = {}
             local offsets = {}
             for i, hitObject in pairs(state.SelectedHitObjects) do
                 offsets[i] = hitObject.StartTime
             end
-            --if (#offsets == 0) then
-            --    imgui.Text("#offsets == 1")
-            --elseif (#offsets == 1) then
-            --    imgui.Text("#offsets == 1")
-            --else
-                offsets = uniqueByTime(offsets)
-                vars.lastSVs = calculateBounceSV(table.sort(offsets), averageSV, svPerBounce, skipEndSV)
-                placesvs(vars.lastSVs)
-            --end
+            offsets = uniqueByTime(offsets)
+            if (#offsets > 2) then
+                for i, offset in ipairs(offsets) do
+                    if (i == 1) then
+                        table.insert(SVs, utils.CreateScrollVelocity(offset , 999999))
+                        table.insert(SVs, utils.CreateScrollVelocity(offset + 1, variables.reverseSVSpeed))
+                    elseif (i == #offsets) then
+                        table.insert(SVs, utils.CreateScrollVelocity(offset - 0.016, variables.teleportSV))
+                        table.insert(SVs, utils.CreateScrollVelocity(offset , 999999))
+                        table.insert(SVs, utils.CreateScrollVelocity(offset + 1, 1))
+                    else
+                        table.insert(SVs, utils.CreateScrollVelocity(offset - 0.016, variables.teleportSV))
+                        table.insert(SVs, utils.CreateScrollVelocity(offset, -variables.teleportSV))
+                        table.insert(SVs, utils.CreateScrollVelocity(offset + 0.016, variables.reverseSVSpeed))
+                    end
+                end
+                actions.PlaceScrollVelocityBatch(SVs)
+            end
         end
-        
-        saveStateVariables(menuID, vars)
+        saveStateVariables(menuID, variables)
         imgui.endTabItem()
     end
 end
 
-function teleport()
-    if imgui.BeginTabItem("Teleport") then
-        imgui.Text("teleport tab")
-        imgui.endTabItem()
-    end
-end
-
-function floating()
-    if imgui.BeginTabItem("Floating") then
-        imgui.Text("floating tab")
-        imgui.endTabItem()
-    end
-end
-
---function reverse scroll direction
-
-function retrieveStateVariables(menuID, variables)
-    for key, value in pairs(variables) do
-        variables[key] = state.GetValue(menuID..key) or value
-    end
-end
-
-function saveStateVariables(menuID, variables)
-    for key, value in pairs(variables) do
-        state.SetValue(menuID..key, value)
-    end
-end
-
-function mathClamp(x, min, max)
-    if x < min then x = min end
-    if x > max then x = max end
-    return x
-end
-
-function mathEvenNum(number)
-  if (number % 2 == 0) then
-      return number
-  else
-      return (number - 1)
-  end
-end
-
-function insertButton()
-    imgui.Button("Insert SVs", { DEFAULT_WIDGET_WIDTH, DEFAULT_WIDGET_HEIGHT })
-end
-
-function calculateBounceSV(offsets, averageSV, svPerBounce, skipEndSV)
-    local SVs = {}
-    local lastOffsetEnd
-    
-    for i, offset in ipairs(offsets) do
-        if (i == #offsets) then 
-            lastOffsetEnd = offset
-        break end
-        
-        linearSVs = calculateLinearSVs(offset, offsets[i+1], averageSV, svPerBounce)
-        table.insert(linearSVs, utils.CreateScrollVelocity(offset, averageSV))
-    end
-    
-    if (skipEndSV == false) then
-        table.insert(SVs, utils.CreateScrollVelocity(lastOffsetEnd, averageSV))
-    end
-    
-    return SVs
-end
-
+-- Takes in a list of offsets and returns the list of offsets but only ones with unique times
+--
+-- Parameters
+--    offsets: table of offsets (Table)
 function uniqueByTime(offsets)
     local hash = {}
     local uniqueTimes = {}
@@ -230,43 +176,62 @@ function uniqueByTime(offsets)
     return uniqueTimes
 end
 
-function calculateLinearSVs(startOffset, endOffset, averageSV, svPerBounce)
-    local offsetInterval = endOffset - startOffset
-    local maxSV = averageSV * 2
-    local svIncrement = (maxSV * 2) / svPerBounce
-    local steps = svPerBounce / 2
-    local svValues = {}
-    local SVs = {}
-    
-    for step = 1, steps, 1 do
-        svValues[step] = - maxSV * (steps - step + 1) / steps
+-- Retrieves variables from the state
+--
+-- Parameters
+--    menuID    : name of the tab menu that the variables are from (String)
+--    variables : table that contains variables and values (Table)
+function retrieveStateVariables(menuID, variables)
+    for key, value in pairs(variables) do
+        variables[key] = state.GetValue(menuID..key) or value
     end
-    
-    for step = steps, 1, -1 do
-        svValues[(2*steps+1)-step] = -svValues[step]
-    end
-    
-    for step = 0, svPerBounce - 1, 1 do
-        local offset = startOffset + step * (offsetInterval/ svPerBounce)
-        SVs[step+1] = utils.CreateScrollVelocity(offset, svValues[step+1])
-    end
-    return SVs
 end
 
-function placeSVs(svs)
-    actions.PlaceScrollVelocityBatch(svs)
+-- Saves variables to the state
+--
+-- Parameters
+--    menuID    : name of the tab menu that the variables are from (String)
+--    variables : table that contains variables and values (Table)
+function saveStateVariables(menuID, variables)
+    for key, value in pairs(variables) do
+        state.SetValue(menuID..key, value)
+    end
 end
 
 -------------------------------------------------------------------------------------
 -- GUI
 -------------------------------------------------------------------------------------
 
-function helpMarker(text)
-    imgui.SameLine()
-    imgui.TextDisabled("(?)")
-    tooltip(text)
+-- Adds vertical blank space on the GUI
+function spacing()
+    imgui.Dummy({0,5})
 end
 
+-- Adds a thin horizontal line separator on the GUI
+function separator()
+    spacing()
+    imgui.Separator()
+end
+
+-- Creates an uppercased section heading
+--
+-- Parameters 
+--    title         : title of the section/heading (String)
+--    skipSeparator : whether or not to skip the horizontal separator (Boolean)
+function section(title, skipSeparator)
+    if not skipSeparator then
+        spacing()
+        imgui.Separator()
+    end
+    spacing()
+    imgui.Text(string.upper(title))
+    spacing()
+end
+
+-- Shows a pop-up box with information when the user's cursor hovers over a specific item
+--
+-- Parameters
+--    text : text that will appear in the pop-up box (String)
 function tooltip(text)
     if imgui.IsItemHovered() then
         imgui.BeginTooltip()
@@ -277,28 +242,20 @@ function tooltip(text)
     end
 end
 
-function separator()
-    spacing()
-    imgui.Separator()
+-- Creates a '(?)' symbol that can be hovered over to give more info about something
+--
+-- Parameters
+--    text : information that will appear when the symbol is hovered over (String)
+function helpMarker(text)
+    imgui.SameLine()
+    imgui.TextDisabled("(?)")
+    tooltip(text)
 end
 
-function spacing()
-    imgui.Dummy({0,5})
-end
-  
-function section(title, skipSeparator, helpMarkerText)
-    if not skipSeparator then
-        spacing()
-        imgui.Separator()
-    end
-    spacing()
-    imgui.Text(string.upper(title))
-    if helpMarkerText then
-        helpMarker(helpMarkerText)
-    end
-    spacing()
-end
-
+-- Creates a box with a copy-able URL link.
+--
+-- Parameters
+--    url : URL link to be copied (String)
 function linkURL(url)
     imgui.PushItemWidth(imgui.GetContentRegionAvailWidth())
     imgui.InputText("##"..url, url, #url, imgui_input_text_flags.AutoSelectAll)
