@@ -1,6 +1,12 @@
--- Thank you IceDynamix for writing the Quaver Plugin Guide
+-- noticeSV v1.0 (updated 13 Feb 2021)
+-- created by kloi34 (a.k.a. xX_k3YsL4yEr_Xx or Pepega Clap)
 
-SAMELINE_SPACING = 5
+-- Thank you IceDynamix for writing the Quaver Plugin Guide. It was a very good starting point for introducing how to code plugins.
+
+-- Referenced, stole, and modified much of IceDynamix's iceSV code >.< : https://github.com/IceDynamix/iceSV
+
+-- "Global" constants
+SAMELINE_SPACING = 5 
 DEFAULT_WIDGET_HEIGHT = 26
 DEFAULT_WIDGET_WIDTH = 250
 BUTTON_WIDGET_RATIOS = { 0.3, 0.7 }
@@ -50,7 +56,7 @@ function applyStyle()
 end
 
 function svMenu()
-    imgui.SetNextWindowSize({450, 450})
+    imgui.SetNextWindowSize({400, 400})
     imgui.Begin("noticeSV", imgui_window_flags.NoResize)
     imgui.BeginTabBar("function_selection")
     info()
@@ -69,7 +75,7 @@ function info()
             helpMarker(text)
         end
         
-        helpItem("Reverse Scroll", "Flips the note scroll direction to the opposite direction")
+        helpItem("Reverse Scroll", "Flips the scroll direction, making notes move in the opposite direction")
         --helpItem("Bounce SV", "Makes a note look like it is jumping or bouncing")
         --helpItem("Teleport SV", "Teleports a note to a different part of the screen")
         --helpItem("Float SV", "Suspend notes in the middle of the screen")
@@ -87,8 +93,7 @@ function info()
         
         separator()
         spacing()
-        imgui.Text("noticeSV v1.0.0")
-        
+        imgui.Text("noticeSV v1.0")
         imgui.endTabItem()
     end
 end
@@ -103,7 +108,8 @@ function reverseScroll()
         retrieveStateVariables(menuID, variables)
         
         section("note", true)
-        imgui.Text("Reverse scroll does not work well with long notes")
+        imgui.BulletText("Select at least 2 notes that start at different times")
+        imgui.BulletText("This SV effect does not work well on long notes")
         
         section("settings")
         
@@ -114,6 +120,7 @@ function reverseScroll()
         imgui.PushItemWidth(DEFAULT_WIDGET_WIDTH * BUTTON_WIDGET_RATIOS[2] - SAMELINE_SPACING)
         _, variables.teleportSV = imgui.DragInt("  Teleport SV", variables.teleportSV, 20, 0, 30000)
         imgui.PopItemWidth()
+        helpMarker("This is the SV value that determines how high or low on the screen the reverse-scroll notes will be hit.")
         
         --buttons with the same string name makes the second button not work for some reason,
         --so i added a space before and after in the string for this second button to make it work
@@ -124,7 +131,6 @@ function reverseScroll()
         imgui.PushItemWidth(DEFAULT_WIDGET_WIDTH * BUTTON_WIDGET_RATIOS[2] - SAMELINE_SPACING)
         _, variables.reverseSVSpeed = imgui.DragFloat("  Reverse SV Speed", variables.reverseSVSpeed, 0.01, -10, 0, "%.2fx")
         imgui.PopItemWidth()
-        helpMarker("The SV value that determines where on the screen the reverse-scroll notes will be hit")
         
         separator()
         spacing()
@@ -136,7 +142,7 @@ function reverseScroll()
                 offsets[i] = hitObject.StartTime
             end
             offsets = uniqueByTime(offsets)
-            if (#offsets > 2) then
+            if (#offsets > 1) then
                 for i, offset in ipairs(offsets) do
                     if (i == 1) then
                         table.insert(SVs, utils.CreateScrollVelocity(offset , 999999))
@@ -159,16 +165,19 @@ function reverseScroll()
     end
 end
 
--- Takes in a list of offsets and returns the list of offsets but only ones with unique times
+-- Takes in a table of offsets and returns an array only with offsets that are at a unique time
 --
 -- Parameters
 --    offsets: table of offsets (Table)
 function uniqueByTime(offsets)
     local hash = {}
+    -- new list of offsets
     local uniqueTimes = {}
     
     for _, value in ipairs(offsets) do
+        -- if the offset is not already on the new list of offsets
         if (not hash[value]) then
+          -- add offset to the new list
             uniqueTimes[#uniqueTimes + 1] = value
             hash[value] = true
         end
@@ -252,7 +261,7 @@ function helpMarker(text)
     tooltip(text)
 end
 
--- Creates a box with a copy-able URL link.
+-- Creates a box with a predefined, copy-able URL link.
 --
 -- Parameters
 --    url : URL link to be copied (String)
