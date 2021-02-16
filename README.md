@@ -1,6 +1,6 @@
 # noticeSV
 
-The GUI design may look very similar to iceSV, but it is
+The GUI design may look very similar to [iceSV](https://github.com/IceDynamix/iceSV), but it is
 
 not iceSV
 
