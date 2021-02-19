@@ -1,43 +1,44 @@
--- noticeSV v1.0 (updated 15 Feb 2021)
--- created by kloi34 (a.k.a. xX_k3YsL4yEr_Xx or Pepega Clap)
+-- noticeSV v1.0 (updated 18 Feb 2021)
+-- created by kloi34
 
--- Thank you IceDynamix for writing the Quaver Plugin Guide. It was a very good starting point for learning how to code plugins.
+-- Thank you IceDynamix for writing the Quaver Plugin Guide
+-- It was a very good starting point for learning how to code plugins
 
--- Referenced, stole, and modified much of IceDynamix's iceSV code >.< : https://github.com/IceDynamix/iceSV
--------------------------------------------------------------------------------------
--------------------------------------------------------------------------------------
+-- Referenced, stole, and modified much of IceDynamix's iceSV code >.< :
+-- https://github.com/IceDynamix/iceSV
+---------------------------------------------------------------------------------------------------
 
--- Makes the plugin window
+-- Creates the plugin window
 function draw()
     applyStyle()
     svMenu()
 end
 
--------------------------------------------------------------------------------------
+---------------------------------------------------------------------------------------------------
 -- Global constants
--------------------------------------------------------------------------------------
+---------------------------------------------------------------------------------------------------
 
-SAMELINE_SPACING = 5
-DEFAULT_WIDGET_HEIGHT = 26
-DEFAULT_WIDGET_WIDTH = 250
-BUTTON_WIDGET_RATIOS = {0.3, 0.7}
-MAX_TELEPORT_SV = 24000
-HUGE_SV = 99999
-BIG_SV = 2000
+SAMELINE_SPACING = 5               -- value determining spacing between GUI items on the same row
+DEFAULT_WIDGET_HEIGHT = 26         -- value determining the height of GUI widgets
+DEFAULT_WIDGET_WIDTH = 250         -- value determining the width of GUI widgets
+BUTTON_WIDGET_RATIOS = {0.3, 0.7}  -- ratio of lengths for a button and a widget on the same row
+MAX_TELEPORT_SV = 24000            -- max value to keep notes on-screen with a 0.016 ms SV
+HUGE_SV = 99999                    -- SV value to move past long sections of the note field
+BIG_SV = 2000                      -- SV value to move off-screen notes onto the current field
 
--------------------------------------------------------------------------------------
+---------------------------------------------------------------------------------------------------
 -- Menus and Tabs
--------------------------------------------------------------------------------------
+---------------------------------------------------------------------------------------------------
 
--- Creates the plugin menu and tabs
+-- Creates the plugin menu and all SV tabs
 function svMenu()
     imgui.Begin("noticeSV", true, imgui_window_flags.AlwaysAutoResize)
+    state.IsWindowHovered = imgui.IsWindowHovered()
     imgui.BeginTabBar("function_selection")
     info()
     reverseScroll()
     bounce()
     imgui.EndTabBar()
-    state.IsWindowHovered = imgui.IsWindowHovered()
     imgui.End()
 end
 
@@ -65,10 +66,11 @@ function info()
         
         listItem("noticeSV Wiki", "https://github.com/kloi34/noticeSV/wiki")
         listItem("GitHub Repository", "https://github.com/kloi34/noticeSV")
-        listItem("Heavily inspired by IceDynamix's iceSV plugin", "https://github.com/IceDynamix/iceSV")
+        listItem("Inspired by IceDynamix's iceSV plugin", "https://github.com/IceDynamix/iceSV")
         
         separator()
         spacing()
+        
         imgui.Text("noticeSV v1.0                                                                                    \\ ( ^ w ^ ) /")
         imgui.endTabItem()
     end
@@ -84,11 +86,10 @@ function reverseScroll()
         }
         retrieveStateVariables(menuID, variables)
         
-        section("note", true)
-        imgui.BulletText("Select at least 2 notes that start at different times")
-        imgui.BulletText("This SV effect does not work well on long notes")
+        giveInstructions()
         
         section("settings")
+        
         if imgui.Button("Reset", {DEFAULT_WIDGET_WIDTH * BUTTON_WIDGET_RATIOS[1], DEFAULT_WIDGET_HEIGHT}) then
             variables.teleportSV = MAX_TELEPORT_SV
         end
@@ -132,15 +133,13 @@ function bounce()
         variables = {
             averageBounceSV = 1,
             numSVsPerBounce = 32,
+            skipEndSV = false,
             bounceType = 0,
             bounceTypes = {"Normal"}
             --bounceTypes = {"Normal", "Sharp", "Stacked"}
         }
         retrieveStateVariables(menuID, variables)
-        
-        section("note", true)
-        imgui.BulletText("Select at least 2 notes that start at different times")
-        imgui.BulletText("This SV effect does not work well on some long notes ends")
+        giveInstructions()
         
         section("settings")
         imgui.PushItemWidth(DEFAULT_WIDGET_WIDTH)
@@ -156,7 +155,7 @@ function bounce()
         variables.averageBounceSV = mathClamp(variables.averageBounceSV, 0, 10)
         imgui.PopItemWidth()
         
-         if imgui.Button(" Reset ", {DEFAULT_WIDGET_WIDTH * BUTTON_WIDGET_RATIOS[1], DEFAULT_WIDGET_HEIGHT}) then
+        if imgui.Button(" Reset ", {DEFAULT_WIDGET_WIDTH * BUTTON_WIDGET_RATIOS[1], DEFAULT_WIDGET_HEIGHT}) then
             variables.numSVsPerBounce = 32
         end
         imgui.SameLine(0, SAMELINE_SPACING)
@@ -166,6 +165,9 @@ function bounce()
         variables.numSVsPerBounce = mathClamp(variables.numSVsPerBounce, 16, 128)
         imgui.PopItemWidth()
         
+        spacing()
+        _, variables.skipEndSV = imgui.Checkbox("Skip final 1.00x SV?", variables.skipEndSV)
+        
         separator()
         spacing()
         
@@ -174,7 +176,7 @@ function bounce()
             if (#offsets > 1) then
                 local SVs = {}
                 if (variables.bounceType == 0) then
-                    SVs = calculateNormalBounceSVs(offsets, variables.averageBounceSV, variables.numSVsPerBounce)
+                    SVs = calculateNormalBounceSVs(offsets, variables.averageBounceSV, variables.numSVsPerBounce, variables.skipEndSV)
                 --elseif (variables.bounceType == 1) then
                 --    SVs = calculateSharpBounceSVs(offsets, variables.averageBounceSV, variables.numSVsPerBounce)
                 --else -- variables.bounceType == 2
@@ -189,11 +191,11 @@ function bounce()
     end
 end
 
--------------------------------------------------------------------------------------
+---------------------------------------------------------------------------------------------------
 -- Calculation/helper functions
--------------------------------------------------------------------------------------
+---------------------------------------------------------------------------------------------------
 
--- Returns a table of the (unique) offsets of selected notes
+-- Returns the (unique) offsets of the selected notes
 function uniqueSelectedNoteOffsets()
     local offsets = {}
     for i, hitObject in pairs(state.SelectedHitObjects) do
@@ -203,10 +205,9 @@ function uniqueSelectedNoteOffsets()
     return offsets
 end
 
--- Takes in a table of offsets and returns an array only with offsets that are at a unique time
---
+-- Takes in a list of offsets and returns the list only with offsets that are at a unique time
 -- Parameters
---    offsets : table of offsets (Table)
+--    offsets : list of offsets (Table)
 function uniqueByTime(offsets)
     local hash = {}
     -- new list of offsets
@@ -224,7 +225,6 @@ function uniqueByTime(offsets)
 end
 
 -- Retrieves variables from the state
---
 -- Parameters
 --    menuID    : name of the tab menu that the variables are from (String)
 --    variables : table that contains variables and values (Table)
@@ -235,7 +235,6 @@ function retrieveStateVariables(menuID, variables)
 end
 
 -- Saves variables to the state
---
 -- Parameters
 --    menuID    : name of the tab menu that the variables are from (String)
 --    variables : table that contains variables and values (Table)
@@ -245,8 +244,7 @@ function saveStateVariables(menuID, variables)
     end
 end
 
--- Calculates reverse-scroll SVs and returns a table of the SVs.
---
+-- Calculates reverse-scroll SVs
 -- Parameters
 --    offsets        : list of offsets (Table)
 --    teleportSV     : value for the teleport SV (Int)
@@ -270,8 +268,7 @@ function calculateReverseSVs(offsets, teleportSV, reverseSVSpeed)
     return SVs
 end
 
--- Returns the first even integer greater than or equal to the given integer.
---
+-- Returns the first even integer greater than or equal to the given integer
 -- Parameters
 --    int : the given integer to "force" to be even
 function forceEven(int)
@@ -283,7 +280,6 @@ function forceEven(int)
 end
 
 -- Restricts a number to be within a closed interval
---
 -- Parameters
 --    number     : the number to keep within the interval
 --    lowerBound : the lower bound of the interval
@@ -298,39 +294,58 @@ function mathClamp(number, lowerBound, upperBound)
     end
 end
 
--- Calculates "normal" bounce SVs and returns a table of the SVs.
---
+-- Calculates "normal" bounce SVs
 -- Parameters
 --    offsets         : list of offsets (Table)
 --    averageBounceSV : the average bounce SV speed (Float)
 --    numSVsPerBounce : number of SVs to place for each bounce (Int)
-function calculateNormalBounceSVs(offsets, averageBounceSV, numSVsPerBounce)
+--    skipEndSV       : whether or not to skip the last 1x end SV (Boolean)
+function calculateNormalBounceSVs(offsets, averageBounceSV, numSVsPerBounce, skipEndSV)
     local SVs = {}
+    local maxSV = 2 * averageBounceSV
+    local deltaSV = maxSV / (numSVsPerBounce / 2)
+    local tableOfSVValues = {}
+    
+    for i = 1, (numSVsPerBounce / 2), 1 do
+        table.insert(tableOfSVValues, - maxSV + ((i - 1) * deltaSV))
+    end
+    for i = #tableOfSVValues, 1, -1 do
+        table.insert(tableOfSVValues, -tableOfSVValues[i])
+    end
+    
     for i, currentOffset in ipairs(offsets) do
-        table.insert(SVs, utils.CreateScrollVelocity(currentOffset, BIG_SV))
-        currentOffset = currentOffset + 1
         if (i == #offsets) then
-            table.insert(SVs, utils.CreateScrollVelocity(currentOffset, 1))
+            if (not skipEndSV) then
+                table.insert(SVs, utils.CreateScrollVelocity(currentOffset, 1))
+            end
         else
+            table.insert(SVs, utils.CreateScrollVelocity(currentOffset, BIG_SV))
+            currentOffset = currentOffset + 1
+            
             local nextOffset = offsets[i + 1]
-            local interval = nextOffset - currentOffset
-            local offsetDelta = interval/numSVsPerBounce
-            local maxSV = 2 * averageBounceSV
-            local deltaSV = maxSV / (numSVsPerBounce / 2)
-            local tableOfSVs = {}
-            for j = 1, (numSVsPerBounce / 2), 1 do
-                table.insert(tableOfSVs, - maxSV + ((j - 1) * deltaSV))
-            end
-            for j = #tableOfSVs, 1, -1 do
-                table.insert(tableOfSVs, -tableOfSVs[j])
-            end
-            for j = 1, #tableOfSVs, 1 do
+            local timeInterval = nextOffset - currentOffset
+            local offsetDelta = timeInterval/numSVsPerBounce
+            
+            for j = 1, #tableOfSVValues, 1 do
                 intermediateOffset = currentOffset + (offsetDelta * (j - 1)) 
-                table.insert(SVs, utils.CreateScrollVelocity(intermediateOffset, tableOfSVs[j]))
+                table.insert(SVs, utils.CreateScrollVelocity(intermediateOffset, tableOfSVValues[j]))
             end
         end
     end
     return SVs
+end
+
+-- 
+function mathQuadraticBezier(P, t)
+    return (1-t)^2*P[1] + 2*(1-t)*t*P[2] + t^2*P[3]
+end
+
+-- Rounds a number to the n-th decimal place
+-- Parameters
+--    x : number to round
+--    n : n-th decimal place to round the number to
+function mathRound(x, n)
+    return tonumber(string.format("%." .. (n or 0) .. "f", x))
 end
 
 --WIP
@@ -354,19 +369,24 @@ function calculateStackedBounceSVs(offsets, averageBounceSV, numSVsPerBounce)
     return SVs
 end
 
--------------------------------------------------------------------------------------
+-- Makes a section to give instructions on how to insert SVs with the plugin
+function giveInstructions()
+    section("note", true)
+    imgui.Text("Select at least 2 notes that start at different times")
+end
+---------------------------------------------------------------------------------------------------
 -- GUI elements
--------------------------------------------------------------------------------------
+---------------------------------------------------------------------------------------------------
 
--- Configures all the GUI colors and visual settings
+-- Configures GUI colors and visual settings
 function applyStyle()
     -- Plugin Styles
     local rounding = 0
     
     imgui.PushStyleVar( imgui_style_var.WindowPadding,      { 20, 10 } )
     imgui.PushStyleVar( imgui_style_var.FramePadding,       { 8, 6 }   )
-    imgui.PushStyleVar( imgui_style_var.ItemSpacing,        {DEFAULT_WIDGET_HEIGHT/2 - 1,  4 } )
-    imgui.PushStyleVar( imgui_style_var.ItemInnerSpacing,   {SAMELINE_SPACING, 6 } )
+    imgui.PushStyleVar( imgui_style_var.ItemSpacing,        {DEFAULT_WIDGET_HEIGHT/2 - 1, 4 })
+    imgui.PushStyleVar( imgui_style_var.ItemInnerSpacing,   {SAMELINE_SPACING, 6 })
     imgui.PushStyleVar( imgui_style_var.ScrollbarSize,      18         )
     imgui.PushStyleVar( imgui_style_var.WindowBorderSize,   0          )
     imgui.PushStyleVar( imgui_style_var.WindowRounding,     rounding   )
@@ -409,10 +429,9 @@ function separator()
 end
 
 -- Creates an uppercased section heading
---
 -- Parameters 
 --    title         : title of the section/heading (String)
---    skipSeparator : whether or not to skip the horizontal separator (Boolean)
+--    skipSeparator : whether or not to skip the horizontal separator above the heading (Boolean)
 function section(title, skipSeparator)
     if not skipSeparator then
         spacing()
@@ -424,9 +443,8 @@ function section(title, skipSeparator)
 end
 
 -- Shows a pop-up box with information when the user's cursor hovers over a specific item
---
 -- Parameters
---    text : text that will appear in the pop-up box (String)
+--    text : information that will appear in the pop-up box (String)
 function tooltip(text)
     if imgui.IsItemHovered() then
         imgui.BeginTooltip()
@@ -438,19 +456,17 @@ function tooltip(text)
 end
 
 -- Creates a '(?)' symbol that can be hovered over to give more info about something
---
 -- Parameters
---    text : information that will appear when the symbol is hovered over (String)
+--    text : info that will appear when the symbol is hovered over (String)
 function helpMarker(text)
     imgui.SameLine()
     imgui.TextDisabled("(?)")
     tooltip(text)
 end
 
--- Creates a box with a predefined, copy-able URL link.
---
+-- Creates a box with a predefined, copy-able URL link
 -- Parameters
---    url : URL link to be copied (String)
+--    url : URL link to appear in the box (String)
 function linkURL(url)
     imgui.PushItemWidth(imgui.GetContentRegionAvailWidth())
     imgui.InputText("##"..url, url, #url, imgui_input_text_flags.AutoSelectAll)
